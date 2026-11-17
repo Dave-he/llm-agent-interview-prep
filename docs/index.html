@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Agent 面试修炼场</title>
+<meta name="description" content="LLM Agent 面试备考交互修炼场：知识树查阅 · 闪卡速查 · 挑战测验 · 场景设计题与手撕代码 · 复习进度追踪">
+<style>
+:root{--bg:#0d1117;--panel:#151b24;--card:#1b2331;--card2:#202a3c;--line:#2c3850;--txt:#e6edf3;--sub:#93a3b8;--acc:#3dd68c;--acc2:#5b9dff;--warn:#e3b341;--bad:#f47067;--gold:#f5c451}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;padding-bottom:60px}
+header{position:sticky;top:0;z-index:50;background:linear-gradient(135deg,#101722 0%,#14203a 100%);border-bottom:1px solid var(--line);padding:14px 20px 12px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.brand h1{font-size:21px;letter-spacing:.5px;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent;display:inline}
+.brand span{color:var(--sub);font-size:12.5px;margin-left:10px}
+nav{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+nav button{background:transparent;border:1px solid var(--line);color:var(--sub);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:13.5px;transition:.18s}
+nav button:hover{color:var(--txt);border-color:var(--acc2)}
+nav button.on{background:linear-gradient(90deg,rgba(61,214,140,.18),rgba(91,157,255,.18));color:var(--acc);border-color:var(--acc)}
+main{max-width:1060px;margin:22px auto 0;padding:0 18px}
+.view{display:none}
+.view.on{display:block;animation:fadein .25s}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+h2.sec{font-size:17px;margin:6px 0 14px;color:var(--txt)}
+h2.sec small{color:var(--sub);font-weight:400;margin-left:8px;font-size:12.5px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;text-align:center}
+.stat b{font-size:26px;display:block}
+.stat i{font-style:normal;color:var(--sub);font-size:12.5px}
+.stat.ok b{color:var(--acc)}.stat.mid b{color:var(--warn)}.stat.no b{color:var(--bad)}.stat.blue b{color:var(--acc2)}.stat.gold b{color:var(--gold)}
+.bar{height:7px;background:#0b0f16;border-radius:4px;overflow:hidden;margin:8px 0 4px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:4px}
+.mut{color:var(--sub);font-size:13px}
+.pill{display:inline-block;padding:1px 9px;border-radius:11px;font-size:11.5px;border:1px solid var(--line);color:var(--sub);margin-right:6px}
+.pill.hot{color:var(--gold);border-color:rgba(245,196,81,.45)}
+.btn{background:var(--card2);color:var(--txt);border:1px solid var(--line);padding:8px 18px;border-radius:9px;cursor:pointer;font-size:13.5px;transition:.15s}
+.btn:hover{border-color:var(--acc2)}
+.btn.pri{background:linear-gradient(90deg,#1f8f5f,#2a6fd6);border:none;color:#fff}
+.btn.mini{padding:4px 12px;font-size:12.5px;border-radius:7px}
+.btn.rate-know{border-color:var(--acc);color:var(--acc)}
+.btn.rate-fuzzy{border-color:var(--warn);color:var(--warn)}
+.btn.rate-no{border-color:var(--bad);color:var(--bad)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.chip{background:transparent;border:1px solid var(--line);color:var(--sub);padding:4px 13px;border-radius:15px;cursor:pointer;font-size:12.5px;transition:.15s}
+.chip.on{color:var(--acc);border-color:var(--acc);background:rgba(61,214,140,.1)}
+input[type=text],input[type=search]{background:#0b0f16;border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:8px 12px;font-size:13.5px;width:100%;outline:none}
+input:focus{border-color:var(--acc2)}
+.layer{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.layer>h3{padding:14px 18px;cursor:pointer;font-size:15px;user-select:none}
+.layer>h3 em{font-style:normal;color:var(--sub);font-size:12.5px;margin-left:8px}
+.layer .kids{padding:0 18px 14px;display:none}
+.layer.open .kids{display:block}
+.knode{border-left:2px solid var(--line);padding:10px 14px;margin:8px 0;background:var(--card);border-radius:0 9px 9px 0;cursor:pointer}
+.knode b{font-size:14px}
+.knode p{display:none;color:var(--sub);font-size:13px;margin-top:6px}
+.knode.open p{display:block}
+.flipwrap{perspective:1200px;height:340px;margin:10px 0}
+.flip{position:relative;width:100%;height:100%;transition:transform .5s;transform-style:preserve-3d;cursor:pointer}
+.flip.go{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:auto}
+.face .q{font-size:17px;font-weight:600;line-height:1.7}
+.face .tip{color:var(--sub);font-size:12px;margin-top:16px}
+.face.back{transform:rotateY(180deg);align-items:flex-start;justify-content:flex-start;text-align:left;font-size:13.5px;line-height:1.8;background:var(--card2)}
+.face.back h4{font-size:15px;margin-bottom:10px;color:var(--acc)}
+.face.back pre{background:#0b0f16;border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-align:left;margin:6px 0;width:100%}
+.face.back .tbl{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
+.face.back .tbl td{border:1px solid var(--line);padding:4px 7px}
+.navrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px}
+.counter{color:var(--sub);font-size:13px}
+.excard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 18px;margin-bottom:11px;cursor:pointer;transition:.15s}
+.excard:hover{border-color:var(--acc2)}
+.excard h4{font-size:14.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.excard .body{display:none;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px;font-size:13.5px;color:var(--sub)}
+.excard.open .body{display:block}
+.excard .body b{color:var(--txt)}
+.dsg{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:14px;overflow:hidden}
+.dsg>h3{padding:13px 18px;cursor:pointer;font-size:15px;user-select:none;display:flex;justify-content:space-between;align-items:center}
+.dsg>h3 .tag{font-size:11.5px;color:var(--gold);border:1px solid rgba(245,196,81,.4);border-radius:11px;padding:1px 9px}
+.dsg .bd{display:none;padding:0 18px 16px;border-top:1px solid var(--line)}
+.dsg.open .bd{display:block}
+.dsg .bd h5{color:var(--acc2);font-size:13.5px;margin:12px 0 6px}
+.dsg .bd ul{margin-left:18px}
+.dsg .bd li{margin:4px 0;font-size:13.5px}
+.dsg .bd pre{background:#0b0f16;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin:8px 0}
+.dsg .trap{color:var(--bad);font-size:13px}
+.qwrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+.qq{font-size:16.5px;font-weight:600;margin-bottom:16px;line-height:1.7}
+.opt{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px 15px;margin:9px 0;cursor:pointer;font-size:14px;transition:.15s}
+.opt:hover:not(:disabled){border-color:var(--acc2);transform:translateX(3px)}
+.opt.right{border-color:var(--acc);background:rgba(61,214,140,.13)}
+.opt.wrong{border-color:var(--bad);background:rgba(244,112,103,.13)}
+.expl{display:none;background:#0b0f16;border:1px solid var(--line);border-left:3px solid var(--acc2);border-radius:8px;padding:12px 15px;margin-top:12px;font-size:13.5px;color:var(--sub)}
+.expl.show{display:block}
+.qmeta{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;font-size:13px;color:var(--sub)}
+.streak{color:var(--gold);font-weight:700}
+.pday{display:flex;gap:12px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:13px 16px;margin-bottom:9px}
+.pday input{margin-top:5px;transform:scale(1.25);accent-color:var(--acc)}
+.pday.done{opacity:.55;text-decoration:line-through}
+.pday b{font-size:14px}
+.pday span{display:block;color:var(--sub);font-size:12.5px}
+footer{max-width:1060px;margin:34px auto 0;padding:14px 18px;border-top:1px solid var(--line);color:var(--sub);font-size:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+footer a{color:var(--acc2);text-decoration:none}
+.badge{display:inline-block;background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.4);color:var(--gold);border-radius:8px;padding:2px 10px;font-size:12px;margin:3px 4px 3px 0}
+.suggest{border-left:3px solid var(--acc);background:rgba(61,214,140,.07);border-radius:0 9px 9px 0;padding:12px 16px;font-size:13.5px;margin-top:12px}
+@media(max-width:640px){.flipwrap{height:400px}.face .q{font-size:15px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><h1>LLM Agent 面试修炼场</h1><span>知识树 · 闪卡 · 测验 · 场景手撕 · 进度追踪</span></div>
+  <nav id="nav">
+    <button data-view="dash" class="on">总览</button>
+    <button data-view="tree">知识树</button>
+    <button data-view="cards">闪卡速查</button>
+    <button data-view="quiz">挑战测验</button>
+    <button data-view="design">场景·手撕</button>
+    <button data-view="plan">复习计划</button>
+  </nav>
+</header>
+<main>
+  <section id="v-dash" class="view on"></section>
+  <section id="v-tree" class="view"></section>
+  <section id="v-cards" class="view"></section>
+  <section id="v-quiz" class="view"></section>
+  <section id="v-design" class="view"></section>
+  <section id="v-plan" class="view"></section>
+</main>
+<footer>
+  <span>数据源：<a href="https://github.com/Dave-he/llm-agent-interview-prep" target="_blank">Dave-he/llm-agent-interview-prep</a> · 三仓合一备考体系</span>
+  <span>进度仅存本地浏览器（localStorage），不会上传</span>
+</footer>
+<script src="data.js"></script>
+<script src="quiz.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
