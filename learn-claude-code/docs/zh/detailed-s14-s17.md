@@ -320,3 +320,14 @@ return f"exit_code={result.returncode}\n{output}"
 ```
 
 火力图使用建议：本组四课覆盖 Top20 中 1/2/4/5/6/9/10/11/12/13/14/17/18/19/20 共 15 个考点；最锋利的三把火是 s14 的"授权只来自宿主配置"、s16 的"语义 key journal+args 严格校验续跑"、s17 的"独立无工具判断器+证据契约"。与 sibling 篇（detailed-s01-s05 / s06-s09 / s10-s13）合读即可对 Top20 完整布防。
+
+---
+
+## 上游同步注记（2026-11 同步至 448c75b，7226f55 之后 4 个修复）
+
+上游本轮修复全部命中我们体系的考点延伸，读源码时对照：
+
+1. **s16 guarded owned-task recovery（崩溃恢复认领）**：新增 `resumable_task(owner)`——空闲 agent **先认领自己未完成的 Task 再找新工作**，认领输出区分 `Resume`/`Auto-claimed`，且 plan gate 处于 pending 的任务直接跳过。这是"任务所有权粘性"的正确恢复语义：agent 崩溃重启后优先续做自己领过的活，而不是抢新活把半成品挂死。与 s10 checkpoint 思想、考点 18/20 一脉相承。
+2. **s15 MCP handler 闭包修复（注入面收窄）**：旧写法用 `lambda *, client=mcp_client, tool=raw_name, **kwargs` 的**默认参数**绑定闭包变量；新写法改为 `make_mcp_handler(client, tool)` 显式闭包工厂。修复目标：**工具入参不能覆盖 client/tool**——与 s14"授权只来自宿主配置"同理：工具执行面的绑定必须宿主侧不可被输入污染（Python 闭包经典陷阱的工程版）。
+3. **s16 workflow discovery（工具描述=API 文档的活案例）**：`run_workflow` 工具的 description 从静态一句话改为**动态拼接全部可用 workflow 清单**，且 `name` 参数加 `enum` 约束。考点 4"description 即路由"的最佳实践：把可选项枚举进 schema，让模型选不错而不是选错后自纠。
+4. **tests 三件套**（`test_agent_teams_runtime` / `test_web_scenarios` / `test_workflow_goal_lessons`）：新增约 165 行测试覆盖上述修复——回归测试即"验证信号"的示范（s17：没有测试的修复等于没修）。
