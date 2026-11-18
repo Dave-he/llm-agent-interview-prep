@@ -55,8 +55,8 @@ KV = 2(K+V) × b × n_kv × L × s × d_head × sizeof(dtype)    【Q 不缓存�
 | LLaMA-2-7B MHA（L=32, n_kv=32, d=128）@ 4k | 16 KiB/层/token → 512 KiB/token → **2.0 GiB**（十进制 ≈2.15 GB） |
 | LLaMA-3-70B GQA-8（L=80, n_kv=8）@ 4k | **1.25 GiB/序列**（320 KiB/token） |
 | 反事实 70B MHA @ 4k | 10 GiB/序列 → GQA 省 8 倍（64/8） |
-| DeepSeek MLA（d_c=512 + d_h^R=64, L=61） | 576 元素 = 1152 B/层/token（无 ×2）→ **68.6 KiB/token → 0.268 GiB@4k**；= GQA-8 的 **28%**、7B-MHA 的 **7%**（论文口径 KV 降 93.3%、吞吐 5.76×） |
-| 128k 上下文（70B 档） | MHA≈320 GiB → GQA≈40 GiB → MLA≈8.4 GiB（报数先声明 GiB/GB 口径） |
+| DeepSeek MLA（d_c=512 + d_h^R=64, L=61） | 576 元素 = 1152 B/层/token（无 ×2）→ **68.6 KiB/token → 0.268 GiB@4k**；= GQA-8 的 **28%**、7B-MHA 的 **7%**（每层每 token 元素比 576/2048、576/8192，非总显存比；论文口径 KV 降 93.3%、吞吐 5.76×） |
+| 128k 上下文（70B 档） | MHA≈320 GiB → GQA≈40 GiB → MLA≈8.6 GiB（L=61 口径；V2 L=60 则 8.4；报数先声明 GiB/GB 口径） |
 | 容量规划 | A100-80G + 70B INT4：权重约 36–40 GB，剩 ~40 GB ÷ 1.25 GiB/4k = **约 30 路并发** |
 
 **(2) FLOPs**（仓1 01 题5 / 08 题3 口径）
@@ -94,7 +94,7 @@ RRF(d) = Σ_{r∈R} 1/(k + rank_r(d))   k=60（Cormack 2009 缺省）、rank 从
 用 rank 不用 score：BM25 无上界、cos∈[-1,1]，量纲不可比；rank 免校准、抗异常。
 手算例（面试现场会算=加分）：A 路 d1 第1、d2 第3；B 路 d2 第1、d1 第5：
 RRF(d1)=1/61+1/65≈0.03177；RRF(d2)=1/63+1/61≈0.03226 → d2 胜（"两路都靠前"压过"单路第一"）
-k→∞ 趋近投票制；k=0 只看各路 top1。
+k→∞ 趋近投票制；k=0 倒数权重最陡、top1 优势最大（第 2 名仍得 1/2，非"只看 top1"）。
 ```
 
 **(6) GQA/MLA 一句话锚**（仓1 01 题7）
@@ -103,14 +103,14 @@ k→∞ 趋近投票制；k=0 只看各路 top1。
 演进统一叙事：瓶颈在"每 token 的 KV 元素数"（decode 带宽）。
 MQA：n_kv=1，cache 缩 h 倍但质量掉；GQA：n_kv=g，LLaMA-70B g=8 → 1/8，质量接近无损（可由 MHA 权重 mean-pool uptraining）；
 MLA：跳出多头框架做低秩压缩，只缓存 c_kv(512)+k_rope(64)=576 元素/层；
-难点=RoPE 与压缩耦合 → k 拆 content（可压）+ rope（单独存每头 64 维）；质量略优于 GQA（DeepSeek-V2 论文）。
+难点=RoPE 与压缩耦合 → k 拆 content（可压）+ rope（跨头共享一条 64 维，单独存）；质量略优于 GQA（DeepSeek-V2 论文）。
 ```
 
 **(7) 检索评测**（仓2 evaluation-monitoring 题1/8；仓2 rag 题）
 
 ```text
 DCG@k = Σ_{i≤k} (2^rel_i − 1)/log2(i+1)；NDCG@k = DCG@k / IDCG@k（理想排序，查询内归一到 [0,1]）
-算例：输出 [3,0,3] k=3 → DCG=7+0+3.5=10.5，IDCG=7+7×0.631+0.5=11.92 → NDCG≈0.88；
+算例：设相关性多重集 {3,3,1,0,0}，输出 [3,0,3] k=3 → DCG=7+0+3.5=10.5，IDCG（理想排列 [3,3,1]）=7+7×0.631+0.5=11.92 → NDCG≈0.88；
 rel=3 掉到第 3 位 → 0×1+7×0.631+7×0.5=7.92 → ≈0.66（掉位惩罚快于乱序）。
 MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径注记：log2(i+1) 与 log2(i+2) 索引平移写法并存，跨系统比分先固定口径。
 ```
@@ -134,12 +134,12 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 
 ## 二、考点矩阵：Top20 × 三仓素材对照
 
-> 列：考点（调研报告 Top20）｜一句话要害｜仓1 章节｜仓2 文件｜仓3 stage 实战。五星=2026 区分度考点（MCP、上下文工程、多智能体、可靠性、注入防御——与传统八股拉开差距的五个）。
+> 列：考点（调研报告 Top20）｜一句话要害｜仓1 章节｜仓2 文件｜仓3 stage 实战。⭐=高频核心考点（表中共 10 个）；其中"五佳"=5/6/9/10/12（MCP、上下文工程、多智能体、可靠性、注入防御——与传统八股拉开差距的五个）。
 
 | # | 考点 | 一句话要害 | 仓1 章节 | 仓2 文件 | 仓3 stage |
 |---|---|---|---|---|---|
 | 1 ⭐ | Agent vs Chatbot vs Workflow | Chatbot 单轮无状态；Workflow 控制流写死在代码；Agent 控制流由模型输出决定。金句：Workflow=编排确定性，Agent=模型智能 | 05 题1 | agent-prompt 01/07 | s01、s12、s16 |
-| 2 ⭐ | Agent Loop 完整循环 | while(出现 tool_use){执行→观察回填}；终止=模型自停/步数预算/人工中断；终止条件与 max_turns 是工程必须项 | 05 题1（60 行最小实现） | agent-prompt 03/04 | s01、s15 |
+| 2 ⭐ | Agent Loop 完整循环 | while(出现 tool_use){执行→观察回填}；终止=模型自停/步数预算/人工中断；终止条件与 max_turns 是工程必须项 | 05 题1（60 行最小实现） | agent-prompt 04/06 | s01、s15 |
 | 3 ⭐ | ReAct 为何有效 | Reasoning 与 Acting 交错生成：思考轨迹引导行动选择，行动结果修正推理；grounding 到观察减少幻觉 | 05 题2 | agent-prompt 01 | s01（tool_result 回 user 角色即 Observation 槽位） |
 | 4 ⭐ | Function Calling | 传 JSON Schema→模型产结构化调用→**执行在客户端**→tool message 回填；并行调用=一次响应多 tool_use 块 | 05 题3 | agent-prompt 08 | s02（dispatch map） |
 | 5 ⭐（2026 必考） | MCP | 解 M×N 集成为协议：host/client/server 三层 + tools/resources/prompts 三原语；MCP 管"工具从哪来"，FC 管"模型怎么调"，互补不互替 | 05 题4/5；07 题9 | — | s14（host 四步：发现/命名空间/宿主授权/每轮重建池） |
@@ -148,15 +148,15 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 | 8 | RAG 与 Agentic RAG | RAG 是检索增强模式，Agent 是多步系统；Agentic RAG=检索成为可决策工具（多跳/改写/自评再检索） | 04 题6/8 | rag-doc-rerank 03/04 | s07（索引与正文分离同构） |
 | 9 ⭐ | 多智能体取舍 | 收益=并行+上下文隔离+异构分工；代价=成本倍增+失败级联+handoff 有损；默认先单 agent+子代理，显著瓶颈再升级 | 05 题7/8 | agent-prompt 05 | s06（一次性隔离）、s13（持久团队）、s16（编排替代） |
 | 10 ⭐ | 可靠性瓶颈 | 链式衰减 0.95^20≈36%；错误自反思的噪声滚雪球；对策=验证信号/checkpoint/人审/缩粒度 | 09 题5 | evaluation-monitoring 04 | s10/s11/s15/s17 |
-| 11 | 评测基准 | SWE-bench(编码)/GAIA(助理)/OSWorld(GUI)/WebArena(网页)/τ²-bench(策略)/AgentDojo(注入)；分数仅初筛，必须私域评测集复验 | 06 题5/6；07 题5 | evaluation-monitoring 全 | s16（每条 finding 对抗验证）、s17（退出码证据） |
+| 11 | 评测基准 | SWE-bench(编码)/GAIA(助理)/OSWorld(GUI)/WebArena(网页)/τ²-bench(策略)/AgentDojo(注入)；分数仅初筛，必须私域评测集复验 | 06 题5/6；07 题9 | evaluation-monitoring 全 | s16（每条 finding 对抗验证）、s17（退出码证据） |
 | 12 ⭐ | Prompt Injection | 外部内容携带恶意指令劫持模型；agent 有工具权+上下文内不可分辩指令与数据故更险；答案=无银弹+纵深分层 | 06 题1/2/3 | evaluation-monitoring 03 | s03（三闸门）、s04、s14（hint 不可信）、s15（摘要降级） |
 | 13 | 沙箱与权限 | 默认只读、写/网络按需；代码进容器/worktree 禁网；凭证分权；四档权限=同一条管线的配置差异 | 09 题5 | agent-prompt 08 | s03、s13（worktree≠沙箱）、s14（deny-by-default） |
 | 14 | 成本优化 | 模型路由（per-step）+KV/前缀缓存+上下文压缩+子代理避免重复读+预算上限降级 | 02 题20 | inference-optimization 04/05 | s15（RecoveryState/Budget） |
-| 15 | 微调 vs 提示 vs RAG | 默认顺序：prompt/context 工程 → RAG/工具（外部知识可更新可审计）→ 微调（格式/风格/降本/私密标注）；微调不解决知识过时 | 03 题14–18 | training-finetuning 07 | s07（技能按需加载=外部知识） |
-| 16 | 论文脉络 | ReAct=交错推理行动 → Reflexion=语言化自我反思 → Voyager=技能库+自动课程 → Generative Agents=记忆流+反思+计划 | 05 题2；07 题5/6 | agent-prompt 01 | s05/s10（反思与计划的工程化落点） |
+| 15 | 微调 vs 提示 vs RAG | 默认顺序：prompt/context 工程 → RAG/工具（外部知识可更新可审计）→ 微调（格式/风格/降本/私密标注）；微调不解决知识过时 | 03 题14–18 | training-finetuning 微调段题01–04 | s07（技能按需加载=外部知识） |
+| 16 | 论文脉络 | ReAct=交错推理行动 → Reflexion=语言化自我反思 → Voyager=技能库+自动课程 → Generative Agents=记忆流+反思+计划 | 05 题2 | agent-prompt 01 | s05/s10（反思与计划的工程化落点） |
 | 17 | 规划技术谱系 | CoT 线性→ToT 树搜索→任务分解+反思迭代；工程主流=plan-first + 执行中重规划（以工具形态出现） | 05 题1；09 题5 | agent-prompt 01/06 | s05（todo nudge）、s10（依赖图）、s17（block 理由=反思信号） |
 | 18 | HITL | 分级审批（高危阻断）+checkpoint 后批量人审+ interrupt-on-external-effect + 可回滚是放权前提 | 09 题5 | agent-prompt 08 | s03（ask_user）、s12（定时轮禁交互审批）、s15 |
-| 19 ⭐ | harness 天花板论 | 模型是地板、harness 是天花板；30 行核心循环之外全是增值工程 | 05/09 全章 | agent-prompt 04/06 | s15（3330 行集成全组件即证据） |
+| 19 ⭐ | harness 天花板论 | 模型是地板、harness 是天花板；30 行核心循环之外全是增值工程 | 05/09 全章 | agent-prompt 04/06 | s15（3346 行集成全组件即证据） |
 | 20 | 前沿：CU/长时程/个人 Agent | GUI 原生操作扩覆盖面；30h 级长时程=compaction+checkpoint+自验证；个人主线=端侧模型+本地记忆；评测从能力分转向安全与过程分 | 07 题5/6/8/9 | multimodal 01 | s17（goal gate 自验证） |
 
 **去重说明**：三仓重叠内容已按"概念→仓1、深度算例→仓2、工程落点→仓3"分工；RAG 评估（仓2 eval）与 Agent 评测（仓1 06、调研考点 11）同源不同面，第三节分别在 D6/E6 讲，不再重复。
@@ -228,7 +228,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 - 追问：报数时必说的口径三件套——二进制 GiB vs 十进制 GB、d_model 与 n_kv·d_head 在 GQA 下不等、MLA 的 576 是"每层每 token 总量"不是每头。
 
 **B3 MHA→MQA→GQA→MLA 演进**（仓1 01 题7；仓2 architecture 题04）
- 见 1.2(6)。追问预演：MQA 质量为何差（所有 Q 头挤同一 KV 子空间，头分工被强制同态）；GQA 的 uptraining（已训 MHA checkpoint 上把 K/V 权重 mean-pool 到 g 组，免重训）；prefill 受益吗（省写入但 prefill 是 compute-bound，收益占比不同）；MLA 还能再压吗（可叠 KV 量化但低秩已压去冗余，收益空间小）。DeepSeek-V3.2 的 DSA 稀疏注意力是这条线的 2025 续章（调研报告表五）。
+ 见 1.2(6)。追问预演：MQA 质量为何差（所有 Q 头挤同一 KV 子空间，头分工被强制同态）；GQA 的 uptraining（已训 MHA checkpoint 上把 K/V 权重 mean-pool 到 g 组，免从头重训——仍需少量 uptraining 微调）；prefill 受益吗（省写入但 prefill 是 compute-bound，收益占比不同）；MLA 还能再压吗（可叠 KV 量化但低秩已压去冗余，收益空间小）。DeepSeek-V3.2 的 DSA 稀疏注意力是这条线的 2025 续章（调研报告表五）。
 - 追问：MQA 是 GQA 特例吗？（是，g=1）；为什么 GQA 论文强调"质量在实验误差内、显著优于 MQA"（g 份 KV 头保留了表达多样性）。
 - 易错：把 MLA 的"低秩"与 LoRA 混为一谈（前者压缩 KV 缓存、后者低秩参数增量——思想同源、对象不同）。
 
@@ -265,7 +265,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 - 追问：LoRA 什么时候明显输给全参（复杂推理/分布外；可加大 r、加目标模块、lora_plus 分层 lr 缓解）。
 - 易错：A/B 初始化写反（B 非零则第一步就扰动原模型）；说 LoRA"减少推理延迟"（合并后无延迟，未合并有 lossless 合并一说，注意口径）。
 
-**C2 PEFT 对比**（仓1 03 题5；仓2 training-finetuning 07）
+**C2 PEFT 对比**（仓1 03 题5；仓2 training-finetuning 微调段题01–04）
  Adapter 串行插入（推理有延迟）；Prefix/Prompt Tuning 把连续向量放输入端（占上下文、训练不稳但零改模型）；LoRA 等价于受约束的全参微调、性价比最高。LoRA 与 MLA 的低秩共享思想同构、与多头 W^O 的 rank-约束远亲——串场这条线是高分装饰。
 - 追问：Prefix Tuning 的 token 预算要在哪个层面算（它占的是**上下文窗口**，不是权重——上下文工程视角的 PEFT）。
 
@@ -291,7 +291,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 - 易错：把"奖励塑形"答成"改 R 网络输出"（稀疏/延迟奖励的塑形=势函数/过程奖励/curriculum，仓2 rlhf 题05）。
 
 **C7 特殊场景：多轮对话与 FC 的对齐设计**（仓1 03 题13/16/17）
- ChatML 三角色（system/user/assistant，tool 结果进 user 位），多轮拼接训练时 **loss 只在 assistant 段反向传播**（mask 掉 user/tool token）。Function Calling 的奖励函数设计（题13）：结构合法率（schema 通过即给分）→ 参数正确性（与 ground-truth 工具意图对齐）→ 任务完成（多轮终态）→ 效率惩罚（步数/token），逐层加权；格式奖励是 GRPO 里的可分解分项（正确性+格式）。
+ 多轮对话格式（Anthropic Messages API 约定：tool 结果进 user 位；OpenAI Chat Completions/ChatML 为独立 tool 角色），拼接训练时 **loss 只在 assistant 段反向传播**（mask 掉非 assistant token）。Function Calling 的奖励函数设计（题13）：结构合法率（schema 通过即给分）→ 参数正确性（与 ground-truth 工具意图对齐）→ 任务完成（多轮终态）→ 效率惩罚（步数/token），逐层加权；格式奖励是 GRPO 里的可分解分项（正确性+格式）。
 - 追问：多轮里中间轮次该不该学（常只学终轮或全轮按衰减——各家口径不同，答"声明选择+理由"即加分）。
 - 易错：把 FC 对齐说成"教模型写 JSON 就行"（执行成功与否才是奖励主体）。
 
@@ -301,12 +301,12 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 
 **D1 三阶段与失败分布**（仓1 04 题1；仓2 rag 题03/05/06）
  阶段一索引（解析→切块→嵌入→入库）、阶段二检索（改写→召回→融合→粗排→精排）、阶段三生成（注入→引用→生成）。RAG 解决的三个原始问题：知识截止、私有知识、幻觉溯源。失败主要分布在**检索与生成接口处**（仓2 引 Gao et al. 2023 综述结论）——诊断要按 query/chunk/模型三层分开归因，这是评测专题 D6 的伏笔。
-- 追问：RAG vs 长25上下文直塞（成本/失焦 context rot/可更新性三段论——1M 窗口也没让 RAG 失业）。
+- 追问：RAG vs 长上下文直塞（成本/失焦 context rot/可更新性三段论——1M 窗口也没让 RAG 失业）。
 - 追问：RAG 意图识别为什么转向小 LLM（成本+低延迟，路由是分类不是生成——2026 口径，仓2 纠偏）。
 - 易错：把 RAG 说成"仅向量检索"（漏后处理、生成约束与评估闭环）。
 
 **D2 Chunking 与 Contextual Retrieval**（仓1 04 题2/3；仓2 rag 文档处理 题01）
- 策略：固定窗口、递归分隔、语义切分、滑动窗口重叠。权衡：块大→召回粗、上下文预算压力；块小→上下文碎、语义断。升级路径（2026 口径，实测数字以 Anthropic 官方为准）：**Contextual Retrieval**——离线用 LLM 给每块生成 1–2 句"它属于全文哪里"的位置语境再检索：top-20 失败率 5.7% → 3.7%（仅上下文嵌入，−35%）→ 2.9%（+BM25，−49%）→ 1.9%（再加重排，−67%）；prompt caching 把逐块成本压到 ~$0.1/1M-token 级。注意"检索质量提升 5 法"实为**分桶后的 6 手段**（仓2 纠偏口径）。
+ 策略：固定窗口、递归分隔、语义切分、滑动窗口重叠。权衡：块大→召回粗、上下文预算压力；块小→上下文碎、语义断。升级路径（2026 口径，实测数字以 Anthropic 官方为准）：**Contextual Retrieval**——离线用 LLM 给每块生成 1–2 句"它属于全文哪里"的位置语境再检索：top-20 失败率 5.7% → 3.7%（仅上下文嵌入，−35%）→ 2.9%（+BM25，−49%）→ 1.9%（再加重排，−67%）；prompt caching 把逐块成本压到约 $1.02/1M 文档 token（Anthropic 官方口径）。注意"检索质量提升 5 法"实为**分桶后的 6 手段**（仓2 纠偏口径）。
 - 追问：块 512 还是 1024 起？（中文 512–1024 token 常见起点，用 NDCG/Recall@k 网格调，别背结论）；语义切分的真实收益场景（结构散乱的会议/法务长文）。
 - 易错：引 Contextual Retrieval 不说"相对降幅"口径（漏掉 5.7% 绝对基线）。
 
@@ -341,7 +341,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 ### 专题 E · Agent 六件套（loop · 工具 · 记忆 · 子代理 · MCP · 评测）
 
 **E1 Agent Loop**（仓1 05 题1；仓3 s01）
- 最小实现：`while stop_reason=="tool_use"`；四要素=模型决策/客户端执行/观察回填/终止三分类（模型自停、预算步数、人工中断）。工程必须项=max_turns 与预算（纯模型自停教学可以、生产不行）。链式衰减算术（0.95^20≈36%）是我方在 loop 题上的"必带数字"。追问"为什么 tool_result 回 user 角色"：API 角色约束 + 语义上观察=环境给用户世界的新输入（ReAct 的 Observation 槽位）。
+ 最小实现：`while stop_reason=="tool_use"`；四要素=模型决策/客户端执行/观察回填/终止三分类（模型自停、预算步数、人工中断）。工程必须项=max_turns 与预算（纯模型自停教学可以、生产不行）。链式衰减算术（0.95^20≈36%）是我方在 loop 题上的"必带数字"。追问"为什么 tool_result 回 user 角色"：Anthropic Messages API 约定（OpenAI Chat Completions 为独立 tool 角色）+ 语义上观察=环境给用户世界的新输入（ReAct 的 Observation 槽位）。
 
 **E2 工具系统（Function Calling 工程面）**（仓1 05 题3；仓3 s02）
  全链路：schema 声明 → 模型产出 name+args → harness dispatch 执行 → 结果回对话。三条铁律：①执行永远在客户端；②约束解码保证格式；③**错误是给模型的输入不是给用户的崩溃**（未知工具回 "Tool unknown + 可用清单" 让模型自纠，handler 异常原地捕获转文本）。工具描述=API 文档，描述质量直接决定调用准确率——它的权重高于换模型。路径类工具必须有 resolve+is_relative_to 白名单，并"在每个产生路径的入口各校验一次"。
@@ -391,7 +391,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
  Agent 更危险的根源复述一遍（考点 12）：有工具执行权 + 上下文中指令与数据不可分辩。评测转向：从"能力分"到"安全与过程分"——过程分=合规使用工具/最小权限/及时求证的轨迹质量（s16 的每条 finding 独立对抗验证是工程示例）。长时程可靠性配方（考点 20）：compaction + checkpoint + 自验证（goal gate：独立无工具判断器只读证据、no-tool-use 不等于完成）——安全答到"过程可审计"这一层即达到 2026 口径。
 
 **F5 生产监控与 ROI 论证**（仓2 eval 题02–08；调研第六章）
- 在线四指标：任务成功率、步数与 token 分布（成本画像）、人审介入率、错误根因分布（意图/检索/工具/生成四桶）。方法论收口（仓2 题07 的判断矩阵）：知识缺失→RAG；格式/行为不合→SFT/对齐；路径固定→workflow；不可验证+低频任务→不上 agent。反直觉护城河数字：METR 2025 对照研究发现有经验开源开发者用 AI **主观提速、实测慢约 19%**——收益依赖任务可验证性与样板率（样板代码/新功能收益大，熟悉域微调收益小），这是讨论"要不要上 agent"的高分区素材。
+ 在线四指标：任务成功率、步数与 token 分布（成本画像）、人审介入率、错误根因分布（意图/检索/工具/生成四桶）。方法论收口（调研报告 158 行决策框架）：知识缺失→RAG；格式/行为不合→SFT/对齐；路径固定→workflow；不可验证+低频任务→不上 agent。反直觉护城河数字：METR 2025 对照研究发现有经验开源开发者用 AI **主观提速、实测慢约 19%**——收益依赖任务可验证性与样板率（样板代码/新功能收益大，熟悉域微调收益小），这是讨论"要不要上 agent"的高分区素材。
 - 追问：领导问"为什么这个场景不上 agent"（不可验证且无自动信号＝失败无法翻案；基建成本＞收益）。
 - 易错：只报正面数字、无成本与失败口径——追问一层即穿。
 
@@ -437,7 +437,7 @@ MRR：首个相关结果排名倒数的均值（"只认第一命中"）。口径
 
 **组一 · 骨架（s01/s02/s04）——"控制流由谁决定"**
 考法：给一段"agent 框架"，问哪一行是 agent 的本质。答法：找 `while` + 判"下一个 tool_use 是否存在"那一行；模型输出决定走不走、往哪走。扩展：s04 的不可绕过性靠 `trigger_hooks("PreToolUse", block)` 写在主路径——不是模型可选服务；Stop 钩子返回字符串即把 user 消息塞回、`continue` 强制续跑。
-- 追问：为什么观察回填 user 角色（API 角色约束+Observation 语义）；未知工具怎么处理（回"Unknown+可用清单"让模型自纠，-handler 异常必须原地捕获转文本否则击穿 REPL）。
+- 追问：为什么观察回填 user 角色（Anthropic Messages API 约定，OpenAI 为独立 tool 角色；Observation 语义）；未知工具怎么处理（回"Unknown+可用清单"让模型自纠，-handler 异常必须原地捕获转文本否则击穿 REPL）。
 - 追问：钩子异常放行还是拦（fail-closed/open 按钩子性质声明）；Stop 强制续跑怎么防死循环（force 计数预算）。
 - 串答钩子：s02 dispatch map 的"加 5 个工具循环零改动"可以直接作为"harness 质量>模型更换"的实例证据。
 
@@ -461,7 +461,7 @@ s17 主张：**模型提出停止，harness 决定是否允许**。机制：no-t
 - 追问：为什么不定死最大轮数（完成性每轮刷新；固定 N 轮既杀合法长任务又不能证明完成；预算只做防失控出口）。
 - 串答钩子：这是考点 20"长时程=压缩+checkpoint+自验证"第三件的落地——s08 是压缩、s10/s12 是持久化、s17 是自验证，三件套在 4.2 表格里互指。
 
-**组六 · 集成（s15）——"3330 行里没有新东西，全是共存问题"**
+**组六 · 集成（s15）——"3346 行里没有新东西，全是共存问题"**
 三级追问模型：每类事件从 while True 的哪个位置进来（cron/后台/reminders/todo 固定次序物化为 user 消息）→ 失败谁兜底（429 指数退避→529 两次切 FALLBACK_MODEL→max_tokens 升档 continuation→prompt-too-long reactive compact 重试一次，重试限一次用估算误差兜底）→ 权限 hooks 与 MCP 策略统一卡点（异步轮交互审批不可用即拒绝）。收束语：换模型抬地板，把事件编排、压缩、恢复做对才抬上限。
 - 追问：为什么不 at-most-once（丢提醒是产品级缺陷，重复提醒可容忍——at-least-once 的幂等由任务 ID+`[Scheduled]` 前缀双保险）。
 - 追问：subagent 为什么敢丢中间消息（隔离本来就是目的；同时省主窗口重复读文件——成本与上下文双重收益）。
@@ -489,7 +489,7 @@ s17 主张：**模型提出停止，harness 决定是否允许**。机制：no-t
 | D4 | 概念 | 仓1 02 题1–3（KV 原理/显存/减少手段）+ 复算 1.2(1) 全表 | 容量规划 30 路并发推演 |
 | D5 | 概念 | 仓1 02 题4–8 + 仓2 detailed-inference-optimization 题01/03 | Flash vs Paged 对照表 |
 | D6 | 概念 | 仓1 02 题9–20（解码/量化/部署）+ 仓2 inference 题04/06 | INT4 尺寸估算 |
-| D7 | 概念 | 仓1 03 题1–5（LoRA/QLoRA/PEFT 对比）+ 仓2 training-finetuning 题07 | LoRA 参数量手算 |
+| D7 | 概念 | 仓1 03 题1–5（LoRA/QLoRA/PEFT 对比）+ 仓2 training-finetuning 微调段题01–04 | LoRA 参数量手算 |
 | D8 | 概念 | 仓1 03 题6–13（RLHF→PPO→DPO→GRPO→DAPO 勘误） | DPO 七步推导脱稿 |
 | D9 | 概念 | 仓2 detailed-rlhf-alignment 题01–08 + 仓1 03 题14–18 | 选型三角三句话 |
 | D10 | 概念 | 仓1 07-HotTopics 全 9 题（DeepSeek-V3/R1/MoE/tTC/长上下文/VLM）+ 调研表五 | 2025-11 模型口径一张卡 |
@@ -502,7 +502,7 @@ s17 主张：**模型提出停止，harness 决定是否允许**。机制：no-t
 | D17 | 代码 | 仓3 docs/zh/detailed-s10-s13.md 精读；做环检测短路与 plan gate 移除实验 | 通知注入不变式说明 |
 | D18 | 代码 | 仓3 docs/zh/detailed-s14-s17.md 精读；做 deny-default 翻转与 hash() 反例实验 | goal gate 六分支默写 |
 | D19 | 代码 | 仓1 08-Coding 题1–7 白板复现（Attention/MHA/FLOPs/BPE/Beam/KV/LoRA） | 手撕代码集一 |
-| D20 | 代码 | 仓1 08-Coding 题8–11（检索/RoPE/GQA）+ 09 题1 推理服务延迟拆解 | 手撕代码集二 |
+| D20 | 代码 | 仓1 08-Coding 题8–11（检索/RoPE/LeetCode 高频题10/GQA）+ 09 题1 推理服务延迟拆解 | 手撕代码集二 |
 | D21 | 真题 | 仓1 09-SystemDesign 题2–5（企业 RAG/并行策略/ZeRO/可靠 Agent） | 两张设计图 |
 | D22 | 真题 | 仓1 06 题1–3 + 调研第五章上线九条清单 | 注入防御口径卡 |
 | D23 | 真题 | 仓1 06 题4–7 + 仓2 detailed-evaluation-monitoring 全 8 题 | NDCG 手算 |
@@ -604,6 +604,6 @@ s17 主张：**模型提出停止，harness 决定是否允许**。机制：no-t
 
 ### 6.8 学习路线图（第五层：从底层原理到 Agent 实现的学习顺序总控）
 
-- `/Users/hyx/agent-personal/学习路线图-LLM到Agent.md` — **循序渐进 9 个 Stage（0–8）**：地基自检 → Transformer 底层 → 推理工程 → 训练对齐 → RAG → Agent 核心★ → 协作生态 → 生产化 → 毕业项目（三选一）。每 Stage 三栏验收："**弄懂**（材料坐标精确到章）/ **弄明白**（可打勾验收单）/ **实现好**（动手产出，如 numpy attention、KV 计算器、LoRA 层、DPO loss、最小 RAG、agent-mini 递增五步、MCP server 接入、span 落盘+评测集、毕业项目硬性要求清单）"。附：里程碑总表（贴墙版）、与全部材料的坐标映射表、三遍法+费曼节奏建议、上游三仓同步机制（2026-11 已同步 learn-claude-code 至 448c75b）。与总纲 30 天计划的分工：**路线图管"先学什么学到什么程度"（依赖序），30 天计划管"应试怎么排期"（时间表）**。
+- `/Users/hyx/agent-personal/学习路线图-LLM到Agent.md` — **循序渐进 9 个 Stage（0–8）**：地基自检 → Transformer 底层 → 推理工程 → 训练对齐 → RAG → Agent 核心★ → 协作生态 → 生产化 → 毕业项目（三选一）。每 Stage 三栏验收："**弄懂**（材料坐标精确到章）/ **弄明白**（可打勾验收单）/ **实现好**（动手产出，如 numpy attention、KV 计算器、LoRA 层、DPO loss、最小 RAG、agent-mini 递增五步、MCP server 接入、span 落盘+评测集、毕业项目硬性要求清单）"。开篇含**能力圈边界与面试关注点**（三档划分：做不了只考推导算账 / 看着简单必须精 / 判断层拉差距；Claude 的 90/10 划分；论文答辩型与 API 调参侠型两个答错方向）。附：里程碑总表（贴墙版）、与全部材料的坐标映射表、三遍法+费曼节奏建议、上游三仓同步机制（2026-11 已同步 learn-claude-code 至 448c75b）。与总纲 30 天计划的分工：**路线图管"先学什么学到什么程度"（依赖序），30 天计划管"应试怎么排期"（时间表）**。
 
 *（本总纲 609 行 · 完）*

@@ -63,7 +63,7 @@ def self_attention(x, wq, wk, wv, mask=None):
 
 ### 题 8（二面 1）：MLA 的原理，与 GQA 相比的优势？
 
-- **核心答案链**：GQA 用"KV 头分组共享"省 cache（多少损失精度）。MLA 把 K,V 联合低秩投影到latent c_KV（维度 d_c≪d_model）存进 cache，注意力前用两个吸收矩阵上采回 q,k 空间；RoPE 部分单独走小维度，避免与旋转矩阵冲突。成绩：DeepSeek-V2 官方称 KV cache 降至 MHA 的约 1/13（5.7% 量级），效果不掉反升（低秩结构自带压缩正则）。相对 GQA：不靠"砍头"而是靠"低秩重构"，质量与压缩解耦。
+- **核心答案链**：GQA 用"KV 头分组共享"省 cache（多少损失精度）。MLA 把 K,V 联合低秩投影到latent c_KV（维度 d_c≪d_model）存进 cache，注意力前用两个吸收矩阵上采回 q,k 空间；RoPE 部分单独走小维度，避免与旋转矩阵冲突。成绩：DeepSeek-V2 论文摘要口径——KV cache 压缩 **93.3%**（降至 MHA 的 1/15 量级，等效 GQA 只留 2.25 组）、最大生成吞吐 **5.76×**，效果不掉反升（低秩结构自带压缩正则）。相对 GQA：不靠"砍头"而是靠"低秩重构"，质量与压缩解耦。
 - **一句追问**：为什么解耦 RoPE？——旋转矩阵与低秩矩阵不可交换，位置部分单独缓存 d_rope 维。
 
 ### 题 9（二面 2）：Flash Attention 如何实现的？为什么更快？
@@ -540,7 +540,7 @@ cache_k, cache_v = K, V                # 就地更新
 - **核心答案链**（与 M1-Q4 一致升级版）：通式 **bytes = 2(K,V)·L·n_kv·d_head·s·b·bytes_per**。
 - MHA（n_kv=h）：7B 例 2.1GB/4k 上下文（见 M1-Q4 数字）。
 - GQA（n_kv=g）：÷(h/g)，如 h=32→g=8 为 1/4。
-- MLA：cache 只存潜向量 512 维+解耦 rope 64 维（V2 实际 576/层/token，fp16 约 1.1KB/token/层），相对 MHA 约 1/14（官方口径 says ~5.7%？ 此处以论文数字：V2 表述 KV 减至 MHA 的 13.3%? 需按论文 Actually DeepSeek-V2 论文称 KV cache 降至 13.3%? 报告称为 MHA 的 1/7.4...） 
+- MLA：cache 只存潜向量 512 维+解耦 RoPE 键 64 维**一条**（跨头共享），合计 576 元素/层/token（fp16 1152B≈1.1KB）；官方口径：较 MHA 压缩 93.3%、吞吐 5.76×（论文摘要），等效 GQA 只留 2.25 组；每层元素比 = GQA-8 的 28%、7B-MHA 的 7%（报数带口径：**每层每 token 元素比**，非总显存比）。 
 - **一句追问**：decode 阶段 FLOPs 与显存带宽比？——decode=memory-bound，KV 读取带宽是 roofline；所以 MLA 压缩=直接提 decode 速度。
 
 ### 题 2：Flash Attention 的 tiling 策略和 online softmax

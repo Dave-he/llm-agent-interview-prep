@@ -15,13 +15,14 @@ let rate = store.get("rate", {});
 let qz = store.get("quiz", { seen:0, correct:0, best:0, wrong:[] });
 let plan = store.get("plan", {});
 {
-  const t = new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const t = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   const days = store.get("days", []);
   if (!days.includes(t)) { days.push(t); store.set("days", days); }
 }
 
 const card = { filter:"all", list:[], idx:0, flipped:false };
-const quiz = { mode:"all", list:[], idx:0, streak:0, bestR:0, right:0, answered:false };
+const quiz = { mode:"all", list:[], idx:0, streak:0, bestR:0, right:0, answered:false, answeredCount:0 };
 let designSec = "scene";
 
 function go(view){
@@ -47,9 +48,9 @@ function renderDash(){
   const stat = (cls, val, label) => '<div class="stat ' + cls + '"><b>' + val + '</b><i>' + label + '</i></div>';
   let sug;
   if (weak > 0) sug = '闪卡还有 <b>' + weak + '</b> 张「模糊/不会」——优先清卡，模糊卡比新卡更值得刷。';
+  else if (!seen) sug = '先来一轮「随机 20 题」测验摸底，再决定背什么。';
   else if ((qz.wrong || []).length > 0) sug = '测验错题池还有 <b>' + qz.wrong.length + '</b> 题，去挑战测验开「只刷错题」。';
   else if (pdone < ptotal) sug = '复习计划还剩 <b>' + (ptotal - pdone) + '</b> 项未打卡，按 7 天微计划推进。';
-  else if (!seen) sug = '先来一轮「随机 20 题」测验摸底，再决定背什么。';
   else sug = '全绿。进入模考节奏：抽 3 道场景题，每题限时 15 分钟走完三段式。';
   v.innerHTML = '<h2 class="sec">总览<small>每天 10 分钟，先看建议再动手</small></h2>'
     + '<div class="grid g2"><div class="panel">'
@@ -60,7 +61,7 @@ function renderDash(){
     + stat("gold", dnum, "累计学习天数")
     + '</div>'
     + '<div class="bar"><i style="width:' + Math.round(know / DECK.length * 100) + '%"></i></div>'
-    + '<div class="mut">闪卡总进度 ' + know + '/' + DECK.length + '（考点 20 + 公式 8），绿色=≥80%、黄=≥40%</div>'
+    + '<div class="mut">闪卡总进度 ' + know + '/' + DECK.length + '（考点 ' + EXAM20.length + ' + 公式 ' + FORMULAS.length + '），绿色=≥80%、黄=≥40%</div>'
     + '</div>'
     + '<div class="panel"><h2 class="sec" style="font-size:15px;margin-top:0">今日建议</h2>'
     + '<div class="suggest">' + sug + '</div>'
@@ -112,9 +113,9 @@ function renderCards(){
   const list = card.list;
   const c = list[card.idx];
   const know = list.filter(x => rate[x.key] === "k").length;
-  v.innerHTML = '<h2 class="sec">闪卡速查<small>考点 20 + 公式 8 · 先自述再翻面对答案</small></h2>'
+  v.innerHTML = '<h2 class="sec">闪卡速查<small>考点 ' + EXAM20.length + ' + 公式 ' + FORMULAS.length + ' · 先自述再翻面对答案</small></h2>'
     + '<div class="chips">'
-    + [["all","全部"],["exam","考点 20"],["formula","公式 8"],["weak","模糊+不会"]].map(x =>
+    + [["all","全部"],["exam","考点 " + EXAM20.length],["formula","公式 " + FORMULAS.length],["weak","模糊+不会"]].map(x =>
         '<button class="chip' + (card.filter === x[0] ? " on" : "") + '" data-f="' + x[0] + '">' + x[1] + '</button>').join("")
     + '<button class="chip" data-f="shuf">打乱顺序</button>'
     + '</div>'
@@ -126,7 +127,7 @@ function renderCards(){
         + '<div class="face"><div class="q">' + esc(c.front) + '</div><div class="tip">' + esc(c.sub) + '</div></div>'
         + '<div class="face back"><h4>' + esc(c.front) + '</h4>'
         + (c.formula ? '<pre>' + esc(c.formula) + '</pre>' : "")
-        + '<div style="line-height:1.9;text-align:left">' + esc(c.back) + '</div>'
+        + '<div style="line-height:1.9;text-align:left;white-space:pre-line">' + esc(c.back) + '</div>'
         + (c.src ? '<div class="tip">来源：' + esc(c.src) + '</div>' : "")
         + '</div></div></div>'
         + '<div class="navrow">'
@@ -143,7 +144,7 @@ function renderCards(){
   $$(".chip", v).forEach(b => b.onclick = () => {
     const f = b.dataset.f;
     card.flipped = false;
-    if (f === "shuf") { card.list = shuffle(list.slice()); card.idx = 0; }
+    if (f === "shuf") { card.list = shuffle((card.filter === "weak" ? deckFor("weak") : list).slice()); card.idx = 0; }
     else { card.filter = f; card.list = deckFor(f); card.idx = 0; }
     renderCards();
   });
@@ -151,7 +152,13 @@ function renderCards(){
     const a = b.dataset.act;
     if (a === "prev") { card.idx = (card.idx - 1 + list.length) % list.length; card.flipped = false; }
     else if (a === "flipbtn") { card.flipped = !card.flipped; }
-    else { rate[c.key] = a; store.set("rate", rate); card.idx = (card.idx + 1) % list.length; card.flipped = false; }
+    else {
+      rate[c.key] = a; store.set("rate", rate);
+      if (card.filter === "weak" && a === "k") { card.list = card.list.filter(x => x.key !== c.key); card.idx = Math.min(card.idx, card.list.length - 1); }
+      else card.idx = (card.idx + 1) % list.length;
+      if (card.idx < 0) card.idx = 0;
+      card.flipped = false;
+    }
     renderCards();
   });
 }
@@ -173,15 +180,15 @@ function quizHome(v){
     + '<div class="grid g3" style="margin-top:16px">'
     + '<button class="btn pri" data-m="all">全量 ' + QUIZ.length + ' 题</button>'
     + '<button class="btn" data-m="rand">随机 20 题</button>'
-    + '<button class="btn" data-m="wrong">只刷错题（' + wl + '）</button>'
+    + (wl ? '<button class="btn" data-m="wrong">只刷错题（' + wl + '）</button>' : '<button class="btn" disabled style="opacity:.45;cursor:default">错题池是空的</button>')
     + '</div>'
     + '<div class="mut" style="margin-top:12px">建议节奏：先随机 20 摸底 → 错题清池 → 全量过一遍巩固。</div>';
   $$("button[data-m]", v).forEach(b => b.onclick = () => {
     quiz.mode = b.dataset.m;
     quiz.list = quiz.mode === "all" ? QUIZ.map((_, i) => i)
-      : quiz.mode === "rand" ? shuffle(QUIZ.map((_, i) => i)).slice(0, 20)
-      : shuffle((qz.wrong || []).slice());
-    quiz.idx = 0; quiz.streak = 0; quiz.bestR = 0; quiz.right = 0; quiz.answered = false;
+      : quiz.mode === "rand" ? shuffle(QUIZ.map((_, i) => i)).slice(0, Math.min(20, QUIZ.length))
+      : shuffle((qz.wrong || []).filter(x => QUIZ[x]));
+    quiz.idx = 0; quiz.streak = 0; quiz.bestR = 0; quiz.right = 0; quiz.answered = false; quiz.answeredCount = 0;
     renderQuiz();
   });
 }
@@ -189,6 +196,7 @@ function quizHome(v){
 function quizQ(v){
   const qi = quiz.list[quiz.idx];
   const q = QUIZ[qi];
+  if (!q) { quiz.idx = quiz.list.length; return renderQuiz(); }
   const modeName = quiz.mode === "wrong" ? "错题重刷" : quiz.mode === "rand" ? "随机 20" : "全量 " + QUIZ.length;
   v.innerHTML = '<div class="qwrap">'
     + '<div class="qmeta"><span>第 ' + (quiz.idx + 1) + ' / ' + quiz.list.length + ' 题 · ' + modeName + '</span>'
@@ -206,7 +214,7 @@ function quizQ(v){
     quiz.answered = true;
     const ok = i === q.a;
     opts.forEach((b, j) => { b.disabled = true; if (j === q.a) b.classList.add("right"); if (j === i && !ok) b.classList.add("wrong"); });
-    qz.seen++;
+    qz.seen++; quiz.answeredCount++;
     if (ok) { qz.correct++; quiz.streak++; quiz.right++; quiz.bestR = Math.max(quiz.bestR, quiz.streak); qz.best = Math.max(qz.best, quiz.streak); }
     else quiz.streak = 0;
     qz.wrong = (qz.wrong || []).filter(x => x !== qi);
@@ -227,14 +235,15 @@ function quizQ(v){
 
 function quizSum(v){
   const n = quiz.list.length;
-  if (!n) { quiz.list = []; return renderQuiz(); }
-  const r = quiz.right, pct = Math.round(r / n * 100);
+  const done = quiz.answeredCount;
+  if (!n || !done) { quiz.list = []; return renderQuiz(); }
+  const r = quiz.right, pct = Math.round(r / done * 100);
   v.innerHTML = '<h2 class="sec">本轮结果</h2><div class="qwrap" style="text-align:center">'
     + '<div style="font-size:46px;font-weight:700;color:' + (pct >= 80 ? "var(--acc)" : pct >= 60 ? "var(--warn)" : "var(--bad)") + '">' + pct + '%</div>'
-    + '<div class="mut" style="margin:8px 0 16px">' + r + ' / ' + n + ' 正确 · 本轮最佳连对 ' + quiz.bestR + ' · 错题池现有 ' + (qz.wrong || []).length + ' 题</div>'
+    + '<div class="mut" style="margin:8px 0 16px">' + r + ' / ' + done + ' 正确（本轮 ' + n + ' 题' + (done < n ? '，提前退出 ' + (n - done) + ' 题未计' : '') + '） · 本轮最佳连对 ' + quiz.bestR + ' · 错题池现有 ' + (qz.wrong || []).length + ' 题</div>'
     + '<div class="chips" style="justify-content:center">'
     + '<button class="btn pri" id="qagain">再来一轮</button>'
-    + '<button class="btn" id="qwrong">只刷错题</button>'
+    + ((qz.wrong || []).length ? '<button class="btn" id="qwrong">只刷错题</button>' : '')
     + '<button class="btn" id="qhome">返回首页</button>'
     + '</div></div>';
   $("#qagain", v).onclick = () => { quiz.list = []; renderQuiz(); const b = $('button[data-m="' + quiz.mode + '"]', v); if (b) b.click(); };
@@ -287,7 +296,7 @@ function renderPlan(){
         + '</div>';
     }).join("")
     + '</div><div style="margin-top:14px"><button class="btn mini" id="preset">重置打卡</button></div>';
-  $$("input[type=checkbox]", v).forEach(cb => cb.onchange = () => { plan[cb.dataset.k] = cb.checked; store.set("plan", plan); renderPlan(); });
+  $$("input[type=checkbox]", v).forEach(cb => cb.onchange = () => { const k = cb.dataset.k; plan[k] = cb.checked; store.set("plan", plan); renderPlan(); const el = $('input[data-k="' + k + '"]', v); if (el) el.focus(); });
   $("#preset", v).onclick = () => { if (confirm("重置全部打卡记录？")) { plan = {}; store.set("plan", plan); renderPlan(); } };
 }
 

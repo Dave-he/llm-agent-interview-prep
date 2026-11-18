@@ -88,13 +88,13 @@ policies[prefixed] = MCP_HOST_POLICY.get((server_name, raw_name), "allow")
 
 ### 1.【定位与动机】
 
-前 13 课每个机制都活在各自 demo 里。一个能长期干活的 coding agent 需要它们**同时存在且不打架**：工具+权限+hooks、todo、技能、记忆、压缩与错误恢复、后台任务、cron、团队与协议、任务绑定 worktree、MCP。s15 不引入新机制——3330 行里全组件都已见过——它回答两个新问题：**每类事件从 while True 的哪个位置进入？每步失败由谁兜底？**
+前 13 课每个机制都活在各自 demo 里。一个能长期干活的 coding agent 需要它们**同时存在且不打架**：工具+权限+hooks、todo、技能、记忆、压缩与错误恢复、后台任务、cron、团队与协议、任务绑定 worktree、MCP。s15 不引入新机制——3346 行里全组件都已见过——它回答两个新问题：**每类事件从 while True 的哪个位置进入？每步失败由谁兜底？**
 
 这正是【考点19】的正面演示："模型能力是地板，**harness（上下文管理、工具设计、错误处理、验证回路）是天花板**"——同等模型下，事件编排、压缩策略、错误恢复的差异远大于换模型。对应【考点2】（完整 loop）、【6】（context engineering）、【10】（可靠性）、【14】（成本）、【18】（HITL）。
 
 ### 2.【源码精读】
 
-文件：`/Users/hyx/agent-personal/learn-claude-code/s15_integrated_harness/code.py`（3330 行）。
+文件：`/Users/hyx/agent-personal/learn-claude-code/s15_integrated_harness/code.py`（3346 行）。
 
 **1) 事件进位图**（`agent_loop`，3139-3261）。每轮固定次序：consume cron 队列、到期 job 以 `[Scheduled]` 用户消息注入并累加进 active_request（3147-3158）→ 后台通知注入（3119/3160）→ 3 轮没动 todo 就塞 `<reminder>`（3162-3165）→ 上下文预算管线 `prepare_context`（3096-3107）→ `assemble_tool_pool()` → 调模型 → 分发工具 → `build_user_content`（3110）收尾。外部事件全部物化成 `role=user` 消息——循环本体与 s01 无二，机制全是叠加。
 
@@ -311,7 +311,7 @@ return f"exit_code={result.returncode}\n{output}"
  考点 14 成本优化                 ██████░░░░  s15 模型路由/预算; s16 agents cap/Budget
  考点 17 规划(分解/反思)           ██████░░░░  s15 todo reminder; s17 block=反思信号
  考点 18 HITL                     █████★★░░  confirm 门/异步拒绝/limit 出口
- 考点 19 harness 是天花板         ████████░░  s15 的 3330 行即证据(全组合答题)
+ 考点 19 harness 是天花板         ████████░░  s15 的 3346 行即证据(全组合答题)
  考点 20 长时程自主(30h级)        ████████░░  s17 主战场: 自验证 gate + defer + 出口
 
  (A) "Agent vs Workflow"完整答案: 考点1 金句 + s16 三原语 + s17 目标门续行
@@ -327,7 +327,7 @@ return f"exit_code={result.returncode}\n{output}"
 
 上游本轮修复全部命中我们体系的考点延伸，读源码时对照：
 
-1. **s16 guarded owned-task recovery（崩溃恢复认领）**：新增 `resumable_task(owner)`——空闲 agent **先认领自己未完成的 Task 再找新工作**，认领输出区分 `Resume`/`Auto-claimed`，且 plan gate 处于 pending 的任务直接跳过。这是"任务所有权粘性"的正确恢复语义：agent 崩溃重启后优先续做自己领过的活，而不是抢新活把半成品挂死。与 s10 checkpoint 思想、考点 18/20 一脉相承。
-2. **s15 MCP handler 闭包修复（注入面收窄）**：旧写法用 `lambda *, client=mcp_client, tool=raw_name, **kwargs` 的**默认参数**绑定闭包变量；新写法改为 `make_mcp_handler(client, tool)` 显式闭包工厂。修复目标：**工具入参不能覆盖 client/tool**——与 s14"授权只来自宿主配置"同理：工具执行面的绑定必须宿主侧不可被输入污染（Python 闭包经典陷阱的工程版）。
+1. **s13/s15 guarded owned-task recovery（崩溃恢复认领）**：新增 `resumable_task(owner)`——空闲 agent **先认领自己未完成的 Task 再找新工作**，认领输出区分 `Resume`/`Auto-claimed`，且队友自身 plan 待批时跳过认领（plan gate 语义：认领不越过待批计划）。这是"任务所有权粘性"的正确恢复语义：agent 崩溃重启后优先续做自己领过的活，而不是抢新活把半成品挂死。实现在 `s13_agent_teams` 并同步接入 s15 集成宿主（s15 code.py:1275 一带）；与 s10 checkpoint 思想、考点 18/20 一脉相承。
+2. **s15 MCP handler 闭包修复（注入面收窄）**：旧写法用 `lambda *, client=mcp_client, tool=raw_name, **kwargs` 的**默认参数**绑定闭包变量；新写法改为 `make_mcp_handler(client, tool)` 显式闭包工厂。修复目标：**工具入参不能覆盖 client/tool**——与 s14"授权只来自宿主配置"同理：工具执行面的绑定必须宿主侧不可被输入污染（Python 闭包经典陷阱的工程版）。s14 亦有同类闭包防御——`assemble_tool_pool` 同样用默认参数捕获 `client/tool`（s14 code.py:357-360），是同一陷阱的教学版先行实现。
 3. **s16 workflow discovery（工具描述=API 文档的活案例）**：`run_workflow` 工具的 description 从静态一句话改为**动态拼接全部可用 workflow 清单**，且 `name` 参数加 `enum` 约束。考点 4"description 即路由"的最佳实践：把可选项枚举进 schema，让模型选不错而不是选错后自纠。
 4. **tests 三件套**（`test_agent_teams_runtime` / `test_web_scenarios` / `test_workflow_goal_lessons`）：新增约 165 行测试覆盖上述修复——回归测试即"验证信号"的示范（s17：没有测试的修复等于没修）。

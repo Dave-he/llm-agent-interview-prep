@@ -9,9 +9,9 @@ const TREE = [
     {t: "前沿架构", d: "MoE：FFN→N 专家+router top-k，容量与算力解耦；细粒度+共享专家+aux-loss-free 负载均衡（DeepSeek-V3）；挑战：负载不均/专家崩塌/all-to-all。Test-Time Compute：算力从预训练搬到推理采样与验证，长 CoT 是可见形态。VLM=ViT patch 嵌入+projector 对齐进 LLM 词嵌入空间。"}
   ]},
   {name: "编排层 —— 可靠性上限（harness 决定上限）", note: "仓1 04/05/09 章 · 仓2 rag/vector/agent-prompt · 仓3 s01–s16", kids: [
-    {t: "Agent Loop", d: "while(stop_reason==tool_use){执行→观察回填}。终止三分类：模型自停/步数预算/人工中断；max_turns 是生产必须项。tool_result 回 user 角色（API 约束+Observation 语义）。链式衰减 0.95^20≈36% → 每步验证+缩粒度。"},
+    {t: "Agent Loop", d: "while(stop_reason==tool_use){执行→观察回填}。终止三分类：模型自停/步数预算/人工中断；max_turns 是生产必须项。tool_result 回 user 角色（Anthropic Messages API 约定；OpenAI Chat Completions 为独立 tool 角色；Observation 语义）。链式衰减 0.95^20≈36% → 每步验证+缩粒度。"},
     {t: "上下文工程", d: "管\"什么信息以什么形式在什么时点进窗口\"。总敌人 context rot。四解法：隔离(躲,子代理)/按需(等,渐进披露)/压缩(挤,四步管线按损失×成本升序)/外存(搬)。压缩切点避让 tool_use/tool_result 配对；unseen 保护防占位符幻觉。"},
-    {t: "工具与协议", d: "FC 全链路：JSON Schema 声明→模型产结构化调用→客户端执行→tool message 回填。三条铁律：执行在客户端/约束解码保格式/错误是给模型的输入。工具描述=API 文档，质量>换模型。MCP：host/client/server 三层+tools/resources/prompts 三原语，解 M×N→M+N；与 FC 互补：MCP 管工具从哪来（分发标准），FC 管模型怎么调（调用机制）。host 四步：发现→命名空间+冲突检测→授权只来自宿主配置(deny-by-default)→并入池每轮重建。"},
+    {t: "工具与协议", d: "FC 全链路：JSON Schema 声明→模型产结构化调用→客户端执行→tool message 回填。三条铁律：执行在客户端/FC strict mode・structured outputs 模式走约束解码保格式/错误是给模型的输入。工具描述=API 文档，质量>换模型。MCP：host/client/server 三层+tools/resources/prompts 三原语，解 M×N→M+N；与 FC 互补：MCP 管工具从哪来（分发标准），FC 管模型怎么调（调用机制）。host 四步：发现→命名空间+冲突检测→授权只来自宿主配置(deny-by-default)→并入池每轮重建。"},
     {t: "状态与记忆", d: "短期=窗口+scratchpad；长期=外存四件套 store/recall/consolidate/forget（遗忘与冲突是隐藏考点）。方案谱系：mem0(抽取式 ADD/UPDATE/DELETE/NOOP)/Letta(核心+归档分层自编辑)/Zep(时序知识图谱双时间线)。工程要点：持久性守门+索引常驻正文按需+\"召回与当前请求冲突时当前请求优先\"。"},
     {t: "协作形态", d: "subagent 三铁律：全新 messages/只回传最终文本(handoff 有损)/子工具表剔除 task 防递归委派。持久团队：文件信箱总线(破坏性读)+原子认领+plan gate 落在工具分发层。workflow 运行时：模型只提交 name/args 不提交代码(最小攻击面)；journal 语义 key=sha256 需跨进程稳定。共识：编排确定性+模型智能。"},
     {t: "RAG 与检索", d: "三阶段：索引(解析切块嵌入)→检索(改写召回融合粗排精排)→生成(注入引用)。失败集中在检索与生成接口处。混合检索 BM25+dense+RRF(k=60)；Contextual Retrieval：top-20 失败率 5.7%→1.9%（−35/49/67% 相对降幅）。重排：召回求全/粗排求快/精排求准（cross-encoder），hard negatives 是训练数据核心。Agentic RAG=检索成为可决策工具；GraphRAG=实体/关系/社区摘要，全局问答占优。"}
@@ -49,13 +49,13 @@ const EXAM20 = [
 ];
 
 const FORMULAS = [
-  {id: "f1", name: "KV Cache 显存", f: "KV = 2(K+V) × b × n_kv × L × s × d_head × sizeof(dtype)", back: "Q 不缓存；MLA 无 ×2。每 token 每层 = 2·n_kv·d_head·dtype；×L 层 ×序列长 s ×batch。\n锚点：LLaMA-2-7B MHA(L=32,n_kv=32,d=128)@4k = 512 KiB/token → 2.0 GiB；LLaMA-3-70B GQA-8(L=80,n_kv=8)@4k = 1.25 GiB/序列；反事实 70B MHA=10 GiB→GQA 省 8 倍；MLA(576 元素/层/token)=0.268 GiB@4k=GQA-8 的 28%、7B-MHA 的 7%。128k 上下文 70B 档：MHA≈320GiB→GQA≈40GiB→MLA≈8.4GiB。容量规划：A100-80G+70B INT4（权重约 36–40G，剩 ~40G÷1.25GiB/4k）≈ 30 路并发。报数先声明 GiB/GB 口径。"},
+  {id: "f1", name: "KV Cache 显存", f: "KV = 2(K+V) × b × n_kv × L × s × d_head × sizeof(dtype)", back: "Q 不缓存；MLA 无 ×2。每 token 每层 = 2·n_kv·d_head·dtype；×L 层 ×序列长 s ×batch。\n锚点：LLaMA-2-7B MHA(L=32,n_kv=32,d=128)@4k = 512 KiB/token → 2.0 GiB；LLaMA-3-70B GQA-8(L=80,n_kv=8)@4k = 1.25 GiB/序列；反事实 70B MHA=10 GiB→GQA 省 8 倍；MLA(576 元素/层/token)=0.268 GiB@4k=GQA-8 的 28%、7B-MHA 的 7%（均为每层每 token 元素比：576/2048、576/8192，非总显存比）。128k 上下文 70B 档：MHA≈320GiB→GQA≈40GiB→MLA≈8.6GiB（L=61 口径）。容量规划：A100-80G+70B INT4（权重约 36–40G，剩 ~40G÷1.25GiB/4k）≈ 30 路并发。报数先声明 GiB/GB 口径。"},
   {id: "f2", name: "FLOPs 估算", f: "前向 ≈ 2 × N × D；训练 ≈ 6 × N × D", back: "N=参数量，D=token 数（乘加记 2 FLOPs；前向 2N+反向 4N）。注意力核心项：prefill 全序列 ≈ 2·T²·d；decode 每步 = 当前 qkv 投影 6d + 读旧 KV 4td——缓存省投影、不省注意力读取（decode 带宽瓶颈根源）。例：7B×1T token 训练 = 4.2e22 FLOPs。"},
   {id: "f3", name: "DPO 目标", f: "L_DPO = −E[ log σ( β·log(π_θ(yw|x)/π_ref(yw|x)) − β·log(π_θ(yl|x)/π_ref(yl|x)) ) ]", back: "推导主线：KL 约束 RLHF 目标→拉格朗日→π* = π_ref·e^{r/β}/Z→反解 r→代入 Bradley-Terry 成对 sigmoid→Z(x) 在奖励差中相消→π* 换成 π_θ。\nβ 双重角色：约束端越大越贴 π_ref；损失端 sigmoid 越饱和更新越保守。常用 β∈[0.05,0.5]，0.1 最常见。\n隐式难例加权：梯度权重=σ(r̂_l−r̂_w)，错序越狠学得越狠→标注噪声也被更用力学（噪声敏感的机制根源）。"},
   {id: "f4", name: "GRPO 目标", f: "Â_i = (r_i − mean{r_1..r_G}) / std{r_1..r_G}；J = E[(1/G)Σ(1/|y_i|)Σ min(ρ·Â, clip(ρ,1±ε)·Â) − β·D̂_KL]", back: "组均值即 V(x) 的蒙特卡洛基线→critic 消失。KL 用 k3 无偏估计：π_ref/π_θ − log(π_ref/π_θ) − 1 ≥ 0（逐样本非负）。\n版本口径：DeepSeekMath 归一化分母 (1/G)(1/|y_i|)=原式；全局 token 归一 1/Σ|y_i|=DAPO 修正，勿混写。\n显存账：可训练量减半（7B 约 250GB→130GB）；G=64 常见。坑：全对/全错组 std→0 零梯度→DAPO 动态采样过滤；R1/DAPO 后期 β=0。R1 配方=GRPO+RLVR+少量 SFT 冷启动。"},
-  {id: "f5", name: "RRF 融合", f: "RRF(d) = Σ_{r∈R} 1/(k + rank_r(d))，k=60，rank 从 1 起", back: "用 rank 不用 score：BM25 无上界、cos∈[−1,1]，量纲不可比；rank 免校准、抗异常。\n手算例：A 路 d1 第1、d2 第3；B 路 d2 第1、d1 第5：RRF(d1)=1/61+1/65≈0.03177；RRF(d2)=1/63+1/61≈0.03226→d2 胜（\"两路都靠前\"压过\"单路第一\"）。\nk→∞ 趋近投票制；k=0 只看各路 top1。"},
-  {id: "f6", name: "MHA→MQA→GQA→MLA", f: "瓶颈在每 token 的 KV 元素数（decode 带宽）", back: "MQA：n_kv=1，cache 缩 h 倍但质量掉（Q 头被强制同态）。\nGQA：n_kv=g，LLaMA-70B g=8→1/8，质量近无损（可由 MHA 权重 mean-pool uptraining）。\nMLA：跳出多头框架做低秩压缩，只缓存 c_kv(512)+k_rope(64)=576 元素/层；难点=RoPE 与压缩耦合→k 拆 content（可压）+rope（单独存每头 64 维）；质量略优于 GQA（DeepSeek-V2 论文）。DSA 稀疏注意力是 2025 续章。"},
-  {id: "f7", name: "检索评测 NDCG/MRR", f: "DCG@k = Σ_{i≤k} (2^rel_i −1)/log2(i+1)；NDCG@k = DCG@k / IDCG@k", back: "查询内归一到 [0,1]。算例：输出 [3,0,3] k=3→DCG=7+0+3.5=10.5；IDCG=7+7×0.631+0.5=11.92→NDCG≈0.88。rel=3 掉到第 3 位→7.92→≈0.66（掉位惩罚快于乱序）。\nMRR：首个相关结果排名倒数的均值（只认第一命中）。口径注记：log2(i+1) 与 log2(i+2) 索引平移写法并存，跨系统比分先固定口径。"},
+  {id: "f5", name: "RRF 融合", f: "RRF(d) = Σ_{r∈R} 1/(k + rank_r(d))，k=60，rank 从 1 起", back: "用 rank 不用 score：BM25 无上界、cos∈[−1,1]，量纲不可比；rank 免校准、抗异常。\n手算例：A 路 d1 第1、d2 第3；B 路 d2 第1、d1 第5：RRF(d1)=1/61+1/65≈0.03177；RRF(d2)=1/63+1/61≈0.03226→d2 胜（\"两路都靠前\"压过\"单路第一\"）。\nk→∞ 趋近投票制；k=0 倒数权重最陡、top1 优势最大（第 2 名仍得 1/2，非\"只看 top1\"）。"},
+  {id: "f6", name: "MHA→MQA→GQA→MLA", f: "瓶颈在每 token 的 KV 元素数（decode 带宽）", back: "MQA：n_kv=1，cache 缩 h 倍但质量掉（Q 头被强制同态）。\nGQA：n_kv=g，LLaMA-70B g=8→1/8，质量近无损（可由 MHA 权重 mean-pool uptraining）。\nMLA：跳出多头框架做低秩压缩，只缓存 c_kv(512)+k_rope(64)=576 元素/层；难点=RoPE 与压缩耦合→k 拆 content（可压）+rope（单独存，跨头共享一条 64 维）；质量略优于 GQA（DeepSeek-V2 论文）。DSA 稀疏注意力是 2025 续章。"},
+  {id: "f7", name: "检索评测 NDCG/MRR", f: "DCG@k = Σ_{i≤k} (2^rel_i −1)/log2(i+1)；NDCG@k = DCG@k / IDCG@k", back: "查询内归一到 [0,1]。算例：输出 [3,0,3] k=3→DCG=7+0+3.5=10.5；IDCG=7+7×0.631+0.5=11.92→NDCG≈0.88（设相关性多重集 {3,3,1,0,0}，IDCG 理想排列 [3,3,1]）。rel=3 掉到第 3 位→7.92→≈0.66（掉位惩罚快于乱序）。\nMRR：首个相关结果排名倒数的均值（只认第一命中）。口径注记：log2(i+1) 与 log2(i+2) 索引平移写法并存，跨系统比分先固定口径。"},
   {id: "f8", name: "Agent 可靠性算术", f: "单步成功率 p、串行 n 步 → P = p^n；0.95^20 ≈ 0.36", back: "链式衰减是 agent 可靠性题的必带数字。0.95^10≈0.60、0.95^20≈0.36。\n对策四件：①验证信号优先（可执行测试/退出码）②checkpoint 与回滚 ③人审卡点 ④缩小任务粒度（p 提升 + n 缩短双管齐下）。"}
 ];
 
@@ -154,7 +154,7 @@ const DESIGN = [
 ];
 
 const CODE = [
-  {id: "T1", t: "最小 Agent Loop（白板默写版）", idea: "四要素：模型决策/客户端执行/观察回填/终止三分类；完整版 60 行见仓1 05题1，默 20 行骨架。",
+  {id: "T1", t: "最小 Agent Loop（白板默写版）", idea: "四要素：模型决策/客户端执行/观察回填/终止三分类；完整版 60 行见仓1 05题1，默 13 行骨架。",
     code: `def agent_loop(user_input, tools, max_turns=25):
     messages = [{"role": "user", "content": user_input}]
     for _ in range(max_turns):
@@ -168,7 +168,7 @@ const CODE = [
             except Exception as e:
                 messages.append(tool_msg(call.id, "Error: " + str(e)))
     return escalate_to_human()`,
-    pit: "易错自查：忘 max_turns；异常没原地捕获击穿循环；tool_msg 不带 call.id（API 1:1 配对校验 400）；大结果不截断。追问：tool_result 为什么回 user 角色（API 约束+Observation 语义）。"},
+    pit: "易错自查：忘 max_turns；异常没原地捕获击穿循环；tool_msg 不带 call.id（API 1:1 配对校验 400）；大结果不截断。追问：tool_result 为什么回 user 角色（Anthropic Messages API 约定；OpenAI Chat Completions 为独立 tool 角色；Observation 语义）。"},
   {id: "T2", t: "工具注册表 + 未知工具自纠", idea: "dispatch map 让循环零改动生长工具（s02）；未知工具回\"清单\"让模型自纠；schema 校验失败也回文本。",
     code: `TOOLS = {}
 def register(fn):

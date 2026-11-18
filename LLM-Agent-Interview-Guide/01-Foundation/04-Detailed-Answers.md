@@ -433,9 +433,9 @@ print(kv_cache_bytes_per_token(80, 8, 128)  / 1024)   #  320.0 KiB/token (GQA-8@
 # MLA@V2：缓存 c_kv(512) + k_rope(64) = 576 个元素、各存 1 份
 # （K/V 联合压缩后同源，不再有"K 一份 V 一份"的 ×2，公式里那个 2 就此消失）
 print(60 * 1 * 576 * 2 / 1024)                        #   67.5 KiB/token (MLA@V2)
-# 128k 上下文：MHA≈320 GiB → GQA≈40 GiB → MLA≈8.4 GiB
+# 128k 上下文：MHA≈320 GiB → GQA≈40 GiB → MLA≈8.4 GiB（V2 L=60 口径；V3 L=61 则 ≈8.6 GiB）
 ```
-等等——MHA@70B = 2×80×64×128×2 = 2,621,440 B = 2560 KiB；GQA = 320 KiB；MLA(576) = 67.5 KiB。128k 上下文：MHA≈320 GiB、GQA≈40 GiB、MLA≈8.4 GiB；若按十进制 GB 口径则分别 ≈335 GB、≈42.9 GB、≈9.0 GB（此前把十进制数直接标成 GiB 会整体虚高约 7%，报数前先声明口径）。**这组数字务必自己复算一遍再出口。**
+等等——MHA@70B = 2×80×64×128×2 = 2,621,440 B = 2560 KiB；GQA = 320 KiB；MLA(576) = 67.5 KiB。128k 上下文：MHA≈320 GiB、GQA≈40 GiB、MLA≈8.4 GiB；若按十进制 GB 口径则分别 ≈344 GB、≈42.9 GB、≈9.0 GB（此前把十进制数直接标成 GiB 会整体虚高约 7%，报数前先声明口径）。**这组数字务必自己复算一遍再出口。**
 
 **【30秒答题框架】**
 "出发点都是 KV cache：公式 2·L·n_kv·d_h·s·bytes。MHA 最贵；MQA 全共享 1 个 KV 头，cache 缩 h 倍但质量掉；GQA 分 g 组共享，LLaMA-2-70B g=8、cache 省 8 倍质量几乎不掉；MLA 是 DeepSeek-V2 的低秩压缩路线，每 token 只存 d_c=512+64 的潜码，cache 缩到 GQA 的约 28%、论文口径 93.3% 降幅、吞吐 5.76×；难点是 RoPE 与压缩耦合，要把位置项单独引出。"
